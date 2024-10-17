@@ -39,10 +39,6 @@ export interface paths {
     /** Gets details of the organization linked to the provided Fly organization id */
     get: operations['FlyOrganizationsController_getOrganization']
   }
-  '/partners/flyio/organizations/{organization_id}/billing': {
-    /** Gets the organizations current unbilled charges */
-    get: operations['FlyBillingController_getResourceBilling']
-  }
   '/partners/flyio/organizations/{organization_id}/extensions': {
     /** Gets all databases that belong to the given Fly organization id */
     get: operations['FlyOrganizationsController_getOrgExtensions']
@@ -1016,6 +1012,12 @@ export interface paths {
   '/platform/replication/{ref}/sources/{source_id}/publications': {
     /** Gets source publications */
     get: operations['ReplicationSourcesController_getPublications']
+    /** Creates a publication */
+    post: operations['ReplicationSourcesController_createPublication']
+  }
+  '/platform/replication/{ref}/sources/{source_id}/tables': {
+    /** Gets source tables */
+    get: operations['ReplicationSourcesController_getTables']
   }
   '/platform/reset-password': {
     /** Reset password for email */
@@ -1198,10 +1200,6 @@ export interface paths {
   '/system/orb/webhooks': {
     /** Processes Orb events */
     post: operations['OrbWebhooksController_processEvent']
-  }
-  '/system/organizations/{slug}/billing/partner/usage-and-costs': {
-    /** Gets the partner usage and costs */
-    get: operations['PartnerBillingSystemController_getPartnerUsageAndCosts']
   }
   '/system/organizations/{slug}/billing/subscription': {
     /** Gets the current subscription */
@@ -2989,6 +2987,13 @@ export interface components {
       publish_truncate?: boolean
       publish_update?: boolean
       tables?: string[] | null
+    }
+    CreatePublicationResponse: Record<string, never>
+    CreateReplicationPublicationBody: {
+      /** @description Publication name */
+      name: string
+      /** @description Publication tables */
+      tables: components['schemas']['ReplicationTable'][]
     }
     CreateRoleBody: {
       admins?: string[]
@@ -5036,10 +5041,6 @@ export interface components {
       saml?: components['schemas']['SamlDescriptor']
       updated_at?: string
     }
-    Publication: {
-      name: string
-      tables: components['schemas']['Table'][]
-    }
     PublicUrlOptions: {
       download?: boolean
       downloadName?: string
@@ -5093,12 +5094,20 @@ export interface components {
       slot_name: string
       username: string
     }
+    ReplicationPublication: {
+      name: string
+      tables: components['schemas']['ReplicationTable'][]
+    }
     ReplicationSourcesResponse: {
       config: {
         Postgres?: components['schemas']['ReplicationPostgresConfig']
       }
       id: number
       tenant_id: string
+    }
+    ReplicationTable: {
+      name: string
+      schema: string
     }
     ReportStatusBody: {
       databaseIdentifier: string
@@ -5125,47 +5134,6 @@ export interface components {
     }
     ResizeBody: {
       volume_size_gb: number
-    }
-    ResourceBillingItem: {
-      /**
-       * @description Costs of the item in cents
-       * @example 100
-       */
-      costs: number
-      /**
-       * @description In case of a usage item, the free usage included in the customers Plan
-       * @example 100
-       */
-      freeUnitsInPlan?: number
-      /**
-       * @description Non-Unique identifier of the item
-       * @example usage_egress
-       */
-      itemIdentifier: string
-      /**
-       * @description Descriptive name of the billing item
-       * @example Pro Plan
-       */
-      itemName: string
-      /** @enum {string} */
-      type: 'usage' | 'plan' | 'addon' | 'proration' | 'compute_credits'
-      /**
-       * @description In case of a usage item, the billable usage amount, free usage has been deducted
-       * @example 100
-       */
-      usageBillable?: number
-      /**
-       * @description In case of a usage item, the total usage
-       * @example 100
-       */
-      usageTotal?: number
-    }
-    ResourceBillingResponse: {
-      /** @description Whether the user is exceeding the included quotas in the Plan - only relevant for users on usage-capped Plans. */
-      exceedsPlanLimits: boolean
-      items: components['schemas']['ResourceBillingItem'][]
-      /** @description Whether the user is can have over-usage, which will be billed - this will be false on usage-capped Plans. */
-      overusageAllowed: boolean
     }
     ResourceProvisioningConfigResponse: {
       /**
@@ -7069,21 +7037,6 @@ export interface operations {
       200: {
         content: {
           'application/json': components['schemas']['FlyOrganization']
-        }
-      }
-    }
-  }
-  /** Gets the organizations current unbilled charges */
-  FlyBillingController_getResourceBilling: {
-    parameters: {
-      path: {
-        organization_id: string
-      }
-    }
-    responses: {
-      200: {
-        content: {
-          'application/json': components['schemas']['ResourceBillingResponse']
         }
       }
     }
@@ -13514,10 +13467,59 @@ export interface operations {
     responses: {
       200: {
         content: {
-          'application/json': components['schemas']['Publication'][]
+          'application/json': components['schemas']['ReplicationPublication'][]
         }
       }
       /** @description Failed to get source publications */
+      500: {
+        content: never
+      }
+    }
+  }
+  /** Creates a publication */
+  ReplicationSourcesController_createPublication: {
+    parameters: {
+      path: {
+        /** @description Project ref */
+        ref: string
+        /** @description Source id */
+        source_id: number
+      }
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateReplicationPublicationBody']
+      }
+    }
+    responses: {
+      201: {
+        content: {
+          'application/json': components['schemas']['CreatePublicationResponse']
+        }
+      }
+      /** @description Failed to create publication */
+      500: {
+        content: never
+      }
+    }
+  }
+  /** Gets source tables */
+  ReplicationSourcesController_getTables: {
+    parameters: {
+      path: {
+        /** @description Project ref */
+        ref: string
+        /** @description Source id */
+        source_id: number
+      }
+    }
+    responses: {
+      200: {
+        content: {
+          'application/json': components['schemas']['ReplicationTable'][]
+        }
+      }
+      /** @description Failed to get source tables */
       500: {
         content: never
       }
@@ -14576,24 +14578,6 @@ export interface operations {
         content: never
       }
       /** @description Failed to process Orb event */
-      500: {
-        content: never
-      }
-    }
-  }
-  /** Gets the partner usage and costs */
-  PartnerBillingSystemController_getPartnerUsageAndCosts: {
-    parameters: {
-      path: {
-        /** @description Organization slug */
-        slug: string
-      }
-    }
-    responses: {
-      200: {
-        content: never
-      }
-      /** @description Failed to retrieve subscription */
       500: {
         content: never
       }
